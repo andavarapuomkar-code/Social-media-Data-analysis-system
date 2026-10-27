@@ -1,0 +1,479 @@
+# Import NumPy for numerical operations and conditional classification.
+import numpy as np
+# Import Pandas for loading, cleaning, and analyzing tabular data.
+import pandas as pd
+# Import Matplotlib for creating data visualizations.
+import matplotlib.pyplot as plt
+from google.colab import files
+
+# Ask the user to upload the source social-media CSV file in Google Colab.
+uploaded = files.upload()
+
+# Get the name of the uploaded file.
+filename = list(uploaded.keys())[0]
+
+# Load the CSV file into a Pandas DataFrame.
+df = pd.read_csv(filename)
+
+print("Dataset loaded successfully!")
+
+# Preview the first five records to understand the dataset structure.
+print("First Five Rows:")
+display(df.head())
+
+# Preview the last five records.
+print("Last Five Rows:")
+display(df.tail())
+
+# Display the number of rows and columns.
+print("Dataset Shape:", df.shape)
+
+# Show column names, data types, and non-null counts.
+print("Dataset Information:")
+df.info()
+
+# Summarize numeric columns using count, mean, standard deviation, and quartiles.
+print("Statistical Summary:")
+display(df.describe())
+
+# Count missing values in each column before cleaning.
+print("Missing Values:")
+print(df.isnull().sum())
+
+# Count duplicate rows in the original dataset.
+print("Duplicate Rows:", df.duplicated().sum())
+
+# Display all column names available in the dataset.
+print(df.columns)
+
+# Identify the social-media platforms represented in the data.
+print("Available Platforms:")
+print(df["Platform"].unique())
+
+# Count the number of posts associated with each platform.
+print("Posts by Platform:")
+print(df["Platform"].value_counts())
+
+# Remove duplicate records so they do not affect the analysis.
+df = df.drop_duplicates()
+
+# Replace missing post text with an empty string so text operations can run safely.
+df["Post_Text"] = df["Post_Text"].fillna("")
+
+# Convert likes, comments, and shares to numeric values; invalid or missing values become zero.
+numeric_columns = ["Likes", "Comments", "Shares"]
+
+for column in numeric_columns:
+    df[column] = pd.to_numeric(df[column], errors="coerce")
+    df[column] = df[column].fillna(0)
+
+# Calculate total engagement as the sum of likes, comments, and shares.
+df["Total_Engagement"] = (
+    df["Likes"] +
+    df["Comments"] +
+    df["Shares"]
+)
+
+print("Engagement Calculation Completed!")
+
+display(
+    df[
+        [
+            "Post_ID",
+            "Likes",
+            "Comments",
+            "Shares",
+            "Total_Engagement"
+        ]
+    ].head()
+)
+
+# Begin text preprocessing by converting all post text to lowercase.
+df["Clean_Text"] = df["Post_Text"].str.lower()
+
+# Remove web links from posts because URLs are not useful for keyword analysis.
+df["Clean_Text"] = df["Clean_Text"].str.replace(
+    r"http\S+|www\S+",
+    "",
+    regex=True
+)
+
+# Remove user mentions such as @username.
+df["Clean_Text"] = df["Clean_Text"].str.replace(
+    r"@\w+",
+    "",
+    regex=True
+)
+
+# Remove the hashtag symbol while retaining the hashtag word.
+df["Clean_Text"] = df["Clean_Text"].str.replace("#", "")
+
+# Replace punctuation, digits, and other characters with spaces.
+df["Clean_Text"] = df["Clean_Text"].str.replace(
+    r"[^a-zA-Z\s]",
+    " ",
+    regex=True
+)
+
+# Normalize repeated whitespace and trim spaces from both ends.
+df["Clean_Text"] = df["Clean_Text"].str.replace(
+    r"\s+",
+    " ",
+    regex=True
+).str.strip()
+
+print("Text Cleaning Completed!")
+
+display(df[["Post_Text", "Clean_Text"]].head())
+
+# Define stop words: common words excluded from the word-frequency analysis.
+stop_words = [
+    "the", "is", "are", "was", "were", "and",
+    "or", "a", "an", "to", "of", "in", "on",
+    "for", "with", "this", "that", "it", "be",
+    "as", "at", "by", "from", "we", "you", "i"
+]
+
+# Split cleaned post text into individual words and combine them into one Series.
+all_words = df["Clean_Text"].str.split().explode()
+
+# Filter out missing words, short tokens, and stop words.
+all_words = all_words[
+    all_words.notna()
+    & (all_words.str.len() > 2)
+    & (~all_words.isin(stop_words))
+]
+
+# Count how often each remaining word appears.
+word_frequency = all_words.value_counts()
+
+# Keep the 20 most frequently occurring words.
+top_words = word_frequency.head(20)
+
+print("Top 20 Frequently Used Words:")
+print(top_words)
+
+# Use predefined keyword lists for a simple lexicon-based sentiment analysis.
+positive_words = [
+    "good", "great", "happy", "love", "excellent",
+    "amazing", "best", "success", "wonderful",
+    "like", "enjoy", "awesome", "fantastic"
+]
+
+negative_words = [
+    "bad", "sad", "hate", "worst", "poor",
+    "terrible", "problem", "failure", "angry",
+    "dislike", "wrong", "awful", "disappointed"
+]
+
+# Count positive and negative keyword matches for every post.
+df["Positive_Score"] = df["Clean_Text"].apply(
+    lambda text: sum(
+        text.count(word) for word in positive_words
+    )
+)
+
+df["Negative_Score"] = df["Clean_Text"].apply(
+    lambda text: sum(
+        text.count(word) for word in negative_words
+    )
+)
+
+# Label each post Positive, Negative, or Neutral by comparing the two scores.
+df["Sentiment"] = np.select(
+    [
+        df["Positive_Score"] > df["Negative_Score"],
+        df["Negative_Score"] > df["Positive_Score"]
+    ],
+    [
+        "Positive",
+        "Negative"
+    ],
+    default="Neutral"
+)
+
+print("Sentiment Analysis Completed!")
+
+display(
+    df[["Post_Text", "Positive_Score", "Negative_Score", "Sentiment"]]
+    .head(10)
+)
+
+print("Sentiment Counts:")
+print(df["Sentiment"].value_counts())
+
+# Define keyword groups used to assign a topic category to each post.
+categories = {
+    "Sports": [
+        "cricket", "football", "match", "player", "team",
+        "goal", "tournament"
+    ],
+
+    "Technology": [
+        "technology", "smartphone", "laptop", "python",
+        "software", "ai", "computer", "artificial"
+    ],
+
+    "Entertainment": [
+        "movie", "music", "song", "actor",
+        "series", "concert", "film"
+    ],
+
+    "Education": [
+        "student", "exam", "education", "study",
+        "learning", "school", "university", "course"
+    ],
+
+    "Politics": [
+        "government", "election", "policy",
+        "political", "minister", "campaign"
+    ]
+}
+
+
+# Create a function that scores a post against the category keyword lists.
+def categorize(text):
+
+    scores = {}
+
+    for category, keywords in categories.items():
+
+        scores[category] = sum(
+            text.count(word) for word in keywords
+        )
+
+    best_category = max(scores, key=scores.get)
+
+    if scores[best_category] == 0:
+        return "Other"
+
+    return best_category
+
+
+# Apply the categorization function to every cleaned post.
+df["Category"] = df["Clean_Text"].apply(categorize)
+
+print("Category Classification Completed!")
+
+display(df[["Post_Text", "Category"]].head(10))
+
+print("Posts by Category:")
+print(df["Category"].value_counts())
+
+# Aggregate total engagement by platform for comparison.
+engagement_by_platform = df.groupby("Platform")[
+    "Total_Engagement"
+].sum()
+
+engagement_by_platform.plot(kind="bar")
+
+ # Plot total engagement by platform.
+plt.title("Total Engagement by Platform")
+plt.xlabel("Platform")
+plt.ylabel("Total Engagement")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# Aggregate total engagement by user type.
+engagement_by_user = df.groupby("User_Type")[
+    "Total_Engagement"
+].sum()
+
+engagement_by_user.plot(kind="bar")
+
+ # Plot total engagement grouped by user type.
+plt.title("Engagement by User Type")
+plt.xlabel("User Type")
+plt.ylabel("Total Engagement")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# Count posts per month to examine changes in posting activity over time.
+monthly_posts = (
+    df.dropna(subset=["Date"])
+    .groupby(df["Date"].dt.to_period("M").astype(str))["Post_ID"]
+    .count()
+    .sort_index()
+)
+
+monthly_posts.plot(kind="line", marker="o")
+
+ # Add labels and formatting to the monthly trend chart.
+plt.title("Monthly Posting Trend")
+plt.xlabel("Month")
+plt.ylabel("Number of Posts")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# Plot the top words as a horizontal bar chart for easier label reading.
+top_words.sort_values().plot(kind="barh")
+
+plt.title("Top 20 Frequently Used Words")
+plt.xlabel("Frequency")
+plt.ylabel("Words")
+plt.tight_layout()
+plt.show()
+
+# Histogram: show how total engagement values are distributed across posts.
+plt.figure(figsize=(10, 5)) 
+plt.hist(df["Total_Engagement"], bins=10, edgecolor="black")
+plt.title("Distribution of Total Engagement") 
+plt.xlabel("Total Engagement") 
+plt.ylabel("Number of Posts") 
+plt.tight_layout() 
+plt.show()
+
+# Box plot: inspect the spread of engagement and potential outliers.
+plt.figure(figsize=(8, 5)) 
+plt.boxplot(df["Total_Engagement"].dropna()) 
+plt.title("Box Plot of Total Engagement") 
+plt.ylabel("Total Engagement") 
+plt.tight_layout() 
+plt.show()
+
+# Scatter plot: compare likes and shares for individual posts.
+plt.figure(figsize=(10, 5)) 
+plt.scatter(df["Likes"], df["Shares"], alpha=0.6) 
+plt.title("Likes vs Shares") 
+plt.xlabel("Number of Likes") 
+plt.ylabel("Number of Shares") 
+plt.tight_layout() 
+plt.show()
+
+# Compare mean total engagement across post types.
+df.groupby("Post_Type")["Total_Engagement"].mean().plot(kind="bar")
+
+plt.title("Average Engagement by Post Type")
+plt.xlabel("Post Type")
+plt.ylabel("Average Engagement")
+plt.tight_layout()
+plt.show()
+
+# Calculate post length in characters for comparison with engagement.
+df["Text_Length"] = df["Post_Text"].fillna("").str.len()
+
+plt.figure(figsize=(10, 5))
+plt.scatter(df["Text_Length"], df["Total_Engagement"], alpha=0.6)
+
+plt.title("Post Text Length vs Engagement")
+plt.xlabel("Text Length (Characters)")
+plt.ylabel("Total Engagement")
+plt.tight_layout()
+plt.show()
+
+# Print a concise summary of key findings from the analysis.
+print("===== SOCIALPULSE ANALYSIS INSIGHTS =====")
+
+# Total number of posts
+print("Total Posts:", len(df))
+
+# Most active platform
+print(
+    "Most Active Platform:",
+    df["Platform"].value_counts().idxmax()
+)
+
+# Most common category
+print(
+    "Most Common Category:",
+    df["Category"].value_counts().idxmax()
+)
+
+# Dominant sentiment
+print(
+    "Dominant Sentiment:",
+    df["Sentiment"].value_counts().idxmax()
+)
+
+# Most frequently used word
+if not top_words.empty:
+    print("Most Used Word:", top_words.index[0])
+
+# Total engagement
+print(
+    "Total Engagement:",
+    int(df["Total_Engagement"].sum())
+)
+
+# User type with the highest total engagement
+print(
+    "Highest Engagement User Type:",
+    df.groupby("User_Type")["Total_Engagement"].sum().idxmax()
+)
+
+# Category with the highest average engagement
+print(
+    "Highest Average Engagement Category:",
+    df.groupby("Category")["Total_Engagement"].mean().idxmax()
+)
+
+# Export the cleaned dataset with calculated engagement, sentiment, and category columns.
+df.to_csv("social_media_analyzed.csv", index=False)
+
+print("Analyzed dataset saved successfully!")
+
+# Trigger a download of the analyzed CSV in Google Colab.
+files.download("social_media_analyzed.csv")
+
+# Visualization 1: compare the number of posts on each platform.
+df["Platform"].value_counts().plot(kind="bar")
+plt.title("Posts by Platform")
+plt.xlabel("Platform")
+plt.ylabel("Number of Posts")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+
+# Visualization 2: show each platform’s share of all posts.
+df["Platform"].value_counts().plot(kind="pie", autopct="%1.1f%%", startangle=90)
+plt.title("Platform Distribution")
+plt.ylabel("")
+plt.show()
+
+
+# Visualization: show the proportion of posts in each topic category.
+df["Category"].value_counts().plot(kind="pie", autopct="%1.1f%%", startangle=90)
+plt.title("Posts by Category")
+plt.ylabel("")
+plt.show()
+
+
+# Visualization: compare counts of Positive, Negative, and Neutral posts.
+df["Sentiment"].value_counts().plot(kind="bar")
+plt.title("Sentiment Distribution")
+plt.xlabel("Sentiment")
+plt.ylabel("Number of Posts")
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.show()
+
+
+# Visualization: show the percentage distribution of sentiment labels.
+df["Sentiment"].value_counts().plot(kind="pie", autopct="%1.1f%%", startangle=90)
+plt.title("Sentiment Distribution")
+plt.ylabel("")
+plt.show()
+
+
+# Visualization: compare average engagement across topic categories.
+engagement_by_category = df.groupby("Category")["Total_Engagement"].mean()
+engagement_by_category.plot(kind="bar")
+plt.title("Average Engagement by Category")
+plt.xlabel("Category")
+plt.ylabel("Average Engagement")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+# Save the processed data and all newly created analysis columns.
+# Save the analyzed dataset
+df.to_csv("social_media_analyzed.csv", index=False)
+
+print("Analyzed dataset saved successfully!")
+
+# Download the CSV file
+files.download("social_media_analyzed.csv")
+                        
